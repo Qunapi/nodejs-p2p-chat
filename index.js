@@ -3,9 +3,14 @@
   const net = require("net");
   const os = require("os");
   const { readlinePromise } = require("./utils");
-
+  let history = [];
   const sockets = [];
   const UDPPort = 50601;
+
+  const GET_HISTORY = "GET_HISTORY";
+  const HISTORY = "HISTORY";
+
+  const MESSAGE = "MESSAGE";
 
   console.info("Enter your name");
   const name = await readlinePromise();
@@ -64,6 +69,9 @@
 
   TCPClient.listen(() => createConnections(TCPClient));
   TCPClient.on("connection", (socket) => {
+    if (sockets.length === 0) {
+      socket.write(JSON.stringify({ type: GET_HISTORY }));
+    }
     console.log("new connection");
     handleNewConnection(socket, socket.remoteAddress.slice(8));
   });
@@ -85,8 +93,12 @@
       return readlinePromise()
         .then((message) => {
           sockets.forEach((socket) => {
-            console.log("write");
-            socket.write(JSON.stringify({ name, message }));
+            socket.write(JSON.stringify({ type: MESSAGE, name, message }));
+            history.push(
+              `${name}(${
+                TCPClient.address().address
+              }) says: ${message} [${new Date()}]`,
+            );
           });
         })
         .then(resolver);
@@ -95,12 +107,11 @@
   function handleNewConnection(socket, address) {
     socket.setEncoding("utf8");
     socket.on("data", (data) => {
-      console.log(data);
-      handleMessage(data, address);
+      handleMessage(data, address, socket);
     });
     sockets.push(socket);
     socket.on("end", (socket) => {
-      console.log("connection closed end");
+      console.info("connection closed end");
       const socketIndex = sockets.findIndex(
         (arraySocket) => arraySocket === socket,
       );
@@ -108,8 +119,17 @@
     });
   }
 
-  function handleMessage(data, address) {
-    const { name, message } = JSON.parse(data);
-    console.info(`${name}(${address}) says: ${message}`);
+  function handleMessage(data, address, socket) {
+    const { type, name, message } = JSON.parse(data);
+    if (type === GET_HISTORY) {
+      socket.write(JSON.stringify({ type: HISTORY, history }));
+    } else if (type === HISTORY) {
+      const { history } = JSON.parse(data);
+      history.forEach((message) => console.log(message));
+    } else if (type === MESSAGE) {
+      const msgStr = `${name}(${address}) says: ${message} [${new Date()}]`;
+      console.info(msgStr);
+      history.push(msgStr);
+    }
   }
 })();
